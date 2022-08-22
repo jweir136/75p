@@ -1,53 +1,65 @@
-import math
+class BitReader(object):
+    def __init__(self, f):
+        self.input = f
+        self.accumulator = 0
+        self.bcount = 0
+        self.read = 0
 
-"""
-A File reader and writer util that allows you to easily read individual bits and bytes of a file and write individual bits and bytes.
-"""
-class FILE(object):
-    def __init__(self, filepath, create_mode=False):
-        self.filepath = filepath
-        self.create_mode = create_mode
-        self.read_bits_buffer = ""
-        self.write_bits_buffer = ""
+    def __enter__(self):
+        return self
 
-        if create_mode:
-            self.file = open(filepath, "wb+")
-        else:
-            self.file = open(filepath, "rb")
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
-    def bytes(self):
-        byte = self.file.read(1)
+    def _readbit(self):
+        if not self.bcount:
+            a = self.input.read(1)
+            if a:
+                self.accumulator = ord(a)
+            self.bcount = 8
+            self.read = len(a)
+        rv = (self.accumulator & (1 << self.bcount-1)) >> self.bcount-1
+        self.bcount -= 1
+        return rv
 
-        while True:
-            if not byte:
-                break
-            else:
-                yield ord(byte)
+    def readbits(self, n):
+        v = 0
+        while n > 0:
+            v = (v << 1) | self._readbit()
+            n -= 1
+        return v
 
-            byte = self.file.read(1)
+class BitWriter(object):
+    def __init__(self, f):
+        self.accumulator = 0
+        self.bcount = 0
+        self.out = f
 
-    def write_bit(self, bit):
-        if not self.create_mode:
-            raise Exception("Error: Can't write to file not in CREATE_MODE")
-        
-        if len(self.write_bits_buffer) < 8:
-            self.write_bits_buffer += bit
-        if len(self.write_bits_buffer) == 8:
-            self.file.write(bytes([int(self.write_bits_buffer, base=2)]))
-            self.write_bits_buffer = ""
+    def __enter__(self):
+        return self
 
-    def close(self):
-        if self.create_mode and len(self.write_bits_buffer):
-            raise Exception("Error: {} bits still left in buffer".format(len(self.write_bits_buffer)))
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.flush()
 
-        self.file.close()
+    def __del__(self):
+        try:
+            self.flush()
+        except ValueError:   # I/O operation on closed file.
+            pass
 
-    def __str__(self):
-        return "<FILE {}>".format(self.filepath)
+    def _writebit(self, bit):
+        if self.bcount == 8:
+            self.flush()
+        if bit > 0:
+            self.accumulator |= 1 << 7-self.bcount
+        self.bcount += 1
 
-if __name__ == "__main__":
-    f = FILE("examples/king_james_bible2.txt", True)
-    for _ in range(8):
-        f.write_bit('1')
-    f.close()
-    
+    def writebits(self, bits, n):
+        while n > 0:
+            self._writebit(bits & 1 << n-1)
+            n -= 1
+
+    def flush(self):
+        self.out.write(bytearray([self.accumulator]))
+        self.accumulator = 0
+        self.bcount = 0
